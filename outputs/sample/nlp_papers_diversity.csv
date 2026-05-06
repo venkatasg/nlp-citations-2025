@@ -1,7 +1,0 @@
-corpusid,year,title,citationcount,incoming_diversity,outgoing_diversity,incoming_n,outgoing_n
-267060927,2024,Named Entity Recognition Under Domain Shift via Metric Learning for Life Sciences,5,0.6122448979591837,0.5379555555555555,7,75
-258461308,2024,Text Diffusion Model with Encoder-Decoder Transformers for Sequence-to-Sequence Generation,20,0.47448979591836726,0.523673469387755,28,70
-265149497,2023,Assessing Logical Puzzle Solving in Large Language Models: Insights from a Minesweeper Case Study,21,0.35939643347050754,,27,0
-267200219,2024,TelME: Teacher-leading Multimodal Fusion Network for Emotion Recognition in Conversation,38,0.4952066115702479,0.3253826984692061,55,53
-267759594,2024,Effective and Efficient Conversation Retrieval for Dialogue State Tracking with Implicit Text Summaries,7,0.4600000000000001,0.2880658436213991,10,54
-266999325,2024,Promptly Predicting Structures: The Return of Inference,6,0.49586776859504145,0.42993079584775085,11,68

@@ -1,13 +1,17 @@
-"""Build the list of NLP papers (2022-2025) from ACL Anthology metadata.
+"""Build the list of NLP papers from ACL Anthology metadata.
 
 Wahle et al. defined "NLP paper" as any S2 record whose
 `externalids.ACL` is non-null. We replicate that exactly by reading
 ACL Anthology's bibtex dump and emitting one row per Anthology entry
 (Anthology IDs are exactly what S2 stores under `externalIds.ACL`).
+
+Per-experiment output: writes
+`data/<experiment>/acl_papers.jsonl` filtered to that experiment's
+year window.
 """
 
+import argparse
 import gzip
-import io
 import json
 import os
 import re
@@ -16,16 +20,7 @@ import sys
 import requests
 from tqdm import tqdm
 
-from .config import ACL_BIB_URL, DATA_DIR, YEAR_MAX, YEAR_MIN
-
-OUT_PATH = os.path.join(DATA_DIR, "acl_papers.jsonl")
-
-ENTRY_RE = re.compile(
-    r"@(?P<type>\w+)\s*\{\s*(?P<key>[^,]+),\s*(?P<body>.*?)\n\}\n",
-    re.DOTALL,
-)
-FIELD_RE = re.compile(r"^\s*(\w+)\s*=\s*[\"{](.+?)[\"}]\s*,?\s*$",
-                      re.DOTALL | re.MULTILINE)
+from .config import ACL_BIB_URL, DATA_DIR, EXPERIMENTS, experiment, experiment_dirs
 
 
 def _download_bib(target):
@@ -119,17 +114,22 @@ def _acl_id_of(entry):
     return m.group(1) if m else None
 
 
-def main():
+def build_paper_list(experiment_name):
+    cfg = experiment(experiment_name)
+    dirs = experiment_dirs(experiment_name)
+    os.makedirs(dirs["data_root"], exist_ok=True)
     os.makedirs(DATA_DIR, exist_ok=True)
     bib_gz = os.path.join(DATA_DIR, "anthology+abstracts.bib.gz")
     _download_bib(bib_gz)
 
+    ymin, ymax = cfg["year_min"], cfg["year_max"]
     n_total = n_kept = 0
-    with gzip.open(bib_gz, "rb") as gz, open(OUT_PATH, "w", encoding="utf-8") as out:
+    with gzip.open(bib_gz, "rb") as gz, \
+            open(dirs["acl_list"], "w", encoding="utf-8") as out:
         for entry in parse_bib(gz):
             n_total += 1
             year = _year_of(entry)
-            if year is None or not (YEAR_MIN <= year <= YEAR_MAX):
+            if year is None or not (ymin <= year <= ymax):
                 continue
             if entry["type"] in {"proceedings"}:
                 continue
@@ -148,8 +148,23 @@ def main():
             out.write(json.dumps(row) + "\n")
             n_kept += 1
 
-    print(f"Parsed {n_total:,} entries; kept {n_kept:,} in {YEAR_MIN}-{YEAR_MAX}")
-    print(f"Wrote {OUT_PATH}")
+    print(f"[{experiment_name}] parsed {n_total:,} entries; "
+          f"kept {n_kept:,} in {ymin}-{ymax}")
+    print(f"[{experiment_name}] wrote {dirs['acl_list']}")
+    return n_kept
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--experiment", "-e",
+                    choices=list(EXPERIMENTS) + ["all"],
+                    default="all",
+                    help="Experiment to build the paper list for; "
+                         "'all' (default) builds both.")
+    args = ap.parse_args()
+    targets = list(EXPERIMENTS) if args.experiment == "all" else [args.experiment]
+    for name in targets:
+        build_paper_list(name)
 
 
 if __name__ == "__main__":

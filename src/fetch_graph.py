@@ -1,26 +1,31 @@
-"""Fetch S2 metadata + references + citations for the NLP-paper window.
+"""Fetch S2 metadata + references + citations for an experiment's
+NLP-paper window.
 
 Two stages, runnable independently:
 
-  python -m src.fetch_graph metadata
-      Bulk-resolve every ACL Anthology paper id to S2 corpus metadata
-      via POST /paper/batch (500 ids per call). Writes
-      `data/raw/papers/<corpus_id>.json` and an index file
-      `data/papers_index.jsonl`.
+  python -m src.fetch_graph metadata -e EXPERIMENT
+      Bulk-resolve every ACL Anthology paper id (from the
+      experiment's `acl_papers.jsonl`) to S2 corpus metadata via
+      POST /paper/batch (500 ids per call). Writes
+      `data/<experiment>/raw/papers/<acl_id>.json` and an index
+      file `data/<experiment>/papers_index.jsonl`.
 
-  python -m src.fetch_graph cites [--no-cits] [--workers N] [--limit N]
-      For every focal paper from the metadata stage, fetch references
-      (and, by default, citations) using the per-paper /references and
-      /citations endpoints with limit=1000 and minimal fields. Writes
-      `data/raw/refs/<corpus_id>.jsonl` and `data/raw/cits/<corpus_id>.jsonl`.
+  python -m src.fetch_graph cites -e EXPERIMENT
+                                  [--no-cits] [--workers N] [--limit N]
+      For every focal paper from the metadata stage, fetch
+      references (and, by default, citations) using the per-paper
+      /references and /citations endpoints with limit=1000 and
+      minimal fields. Writes
+      `data/<experiment>/raw/refs/<corpus_id>.jsonl` and
+      `data/<experiment>/raw/cits/<corpus_id>.jsonl`.
 
 The split matches the S2 tutorial's two best practices:
   * Use bulk/batch endpoints "when requesting large data quantities."
-  * "Avoid including more fields than you need" - both stages request
-    only the columns the analysis actually consumes.
+  * "Avoid including more fields than you need" - both stages
+    request only the columns the analysis actually consumes.
 
-Resumes via the presence of per-paper output files; safe to interrupt
-and re-run.
+Resumes via the presence of per-paper output files; safe to
+interrupt and re-run.
 """
 
 import argparse
@@ -34,18 +39,12 @@ import requests
 from tqdm import tqdm
 
 from .config import (
-    DATA_DIR, GraphAPIConfig, S2_API_KEY, S2_GRAPH_BASE, YEAR_MAX, YEAR_MIN,
+    EXPERIMENTS, GraphAPIConfig, S2_API_KEY, S2_GRAPH_BASE,
+    experiment_dirs,
 )
 
 
 CFG = GraphAPIConfig()
-RAW = os.path.join(DATA_DIR, "raw")
-PAPERS_OUT = os.path.join(RAW, "papers")
-REFS_OUT = os.path.join(RAW, "refs")
-CITS_OUT = os.path.join(RAW, "cits")
-PAPERS_INDEX = os.path.join(DATA_DIR, "papers_index.jsonl")
-ACL_LIST = os.path.join(DATA_DIR, "acl_papers.jsonl")
-
 SESSION = requests.Session()
 _MIN_INTERVAL = (1.0 / CFG.rps_with_key) if S2_API_KEY else (1.0 / CFG.rps_without_key)
 _LAST_CALL = [0.0]
@@ -82,13 +81,11 @@ def _request(method, url, *, params=None, json_body=None):
             if r.status_code == 404:
                 return None
             if r.status_code in (429, 500, 502, 503, 504):
-                # Honour Retry-After when present.
                 ra = r.headers.get("Retry-After")
                 wait = float(ra) if ra and ra.replace(".", "", 1).isdigit() else delay
                 time.sleep(wait)
                 delay = min(delay * 2, 60)
                 continue
-            # 4xx other than 404/429 - log once and bail.
             tqdm.write(f"{method} {url} -> {r.status_code}: {r.text[:160]}")
             return None
         except requests.RequestException as e:
@@ -100,6 +97,10 @@ def _request(method, url, *, params=None, json_body=None):
 
 # --- Stage 1: bulk metadata via POST /paper/batch ----------------------
 
+def _safe_basename(s):
+    return s.replace("/", "_")
+
+
 def _write_json(path, obj):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -107,34 +108,34 @@ def _write_json(path, obj):
     os.replace(tmp, path)
 
 
-def _safe_basename(s):
-    """Filesystem-safe version of an ACL id (e.g. 2024.naacl-long.1)."""
-    return s.replace("/", "_")
+def _write_jsonl(path, rows):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+    os.replace(tmp, path)
 
 
-def _load_acl_papers(years=None):
-    if not os.path.exists(ACL_LIST):
-        sys.exit(f"Run `python -m src.fetch_acl` first; missing {ACL_LIST}")
+def _load_acl_papers(acl_list_path):
+    if not os.path.exists(acl_list_path):
+        sys.exit(f"Missing {acl_list_path}; run "
+                 f"`python -m src.fetch_acl` first.")
     rows = []
-    with open(ACL_LIST, encoding="utf-8") as f:
+    with open(acl_list_path, encoding="utf-8") as f:
         for line in f:
-            row = json.loads(line)
-            if years and row["year"] not in years:
-                continue
-            rows.append(row)
+            rows.append(json.loads(line))
     return rows
 
 
-def _index_existing_papers():
-    """Return {acl_id: corpusId} for already-fetched paper metadata."""
+def _index_existing_papers(papers_dir):
     out = {}
-    if not os.path.isdir(PAPERS_OUT):
+    if not os.path.isdir(papers_dir):
         return out
-    for fn in os.listdir(PAPERS_OUT):
+    for fn in os.listdir(papers_dir):
         if not fn.endswith(".json"):
             continue
         try:
-            with open(os.path.join(PAPERS_OUT, fn), encoding="utf-8") as f:
+            with open(os.path.join(papers_dir, fn), encoding="utf-8") as f:
                 d = json.load(f)
             acl = (d.get("externalIds") or {}).get("ACL") or d.get("_acl_id")
             if acl and d.get("corpusId"):
@@ -144,19 +145,21 @@ def _index_existing_papers():
     return out
 
 
-def fetch_metadata(years=None):
-    """Phase A: POST /paper/batch on every ACL id, ~90 calls for 44k papers."""
-    os.makedirs(PAPERS_OUT, exist_ok=True)
-    rows = _load_acl_papers(years=years)
-    done = _index_existing_papers()
+def fetch_metadata(experiment_name):
+    dirs = experiment_dirs(experiment_name)
+    os.makedirs(dirs["papers_dir"], exist_ok=True)
+    rows = _load_acl_papers(dirs["acl_list"])
+    done = _index_existing_papers(dirs["papers_dir"])
     todo = [r for r in rows if r["acl_id"] not in done]
-    print(f"Metadata stage: {len(rows):,} ACL papers, "
-          f"{len(done):,} already cached, {len(todo):,} to fetch "
-          f"({len(todo) // CFG.batch_size + 1} batch calls of "
-          f"<= {CFG.batch_size} ids).")
+
+    n_batches = (len(todo) + CFG.batch_size - 1) // CFG.batch_size
+    print(f"[{experiment_name}] metadata: {len(rows):,} papers, "
+          f"{len(done):,} cached, {len(todo):,} to fetch in "
+          f"{n_batches} batch calls of <= {CFG.batch_size} ids.")
 
     url = f"{S2_GRAPH_BASE}/paper/batch"
-    pbar = tqdm(total=len(todo), desc="paper/batch", unit="paper")
+    pbar = tqdm(total=len(todo), desc=f"{experiment_name}/paper/batch",
+                unit="paper")
     n_ok = n_miss = 0
     for start in range(0, len(todo), CFG.batch_size):
         chunk = todo[start:start + CFG.batch_size]
@@ -174,33 +177,24 @@ def fetch_metadata(years=None):
                 continue
             paper["_acl_id"] = acl_row["acl_id"]
             paper["_acl_year"] = acl_row["year"]
-            out = os.path.join(PAPERS_OUT, f"{_safe_basename(acl_row['acl_id'])}.json")
+            out = os.path.join(dirs["papers_dir"],
+                               f"{_safe_basename(acl_row['acl_id'])}.json")
             _write_json(out, paper)
             n_ok += 1
         pbar.update(len(chunk))
     pbar.close()
 
-    # Refresh the index file so the cites stage doesn't have to scan
-    # 44k JSON files.
-    index = _index_existing_papers()
-    with open(PAPERS_INDEX, "w", encoding="utf-8") as f:
+    index = _index_existing_papers(dirs["papers_dir"])
+    with open(dirs["papers_index"], "w", encoding="utf-8") as f:
         for acl, cid in sorted(index.items(), key=lambda x: x[1]):
             f.write(json.dumps({"acl_id": acl, "corpusid": cid}) + "\n")
-    print(f"metadata stage: ok={n_ok:,} miss={n_miss:,}; index -> {PAPERS_INDEX}")
+    print(f"[{experiment_name}] metadata: ok={n_ok:,} miss={n_miss:,}; "
+          f"index -> {dirs['papers_index']}")
 
 
 # --- Stage 2: per-paper /references and /citations --------------------
 
-def _write_jsonl(path, rows):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r) + "\n")
-    os.replace(tmp, path)
-
-
 def _paged(url, fields, cap):
-    """Walk offset/limit pagination at the maximum page size."""
     out, offset = [], 0
     while offset < cap:
         page = _request("GET", url, params={
@@ -247,54 +241,56 @@ def _flatten_cits(corpus_id, page):
     } for d in page]
 
 
-def _process_one(corpus_id, *, fetch_cits_too):
-    refs_path = os.path.join(REFS_OUT, f"{corpus_id}.jsonl")
-    cits_path = os.path.join(CITS_OUT, f"{corpus_id}.jsonl")
+def _process_one(corpus_id, refs_dir, cits_dir, *, fetch_cits_too):
+    refs_path = os.path.join(refs_dir, f"{corpus_id}.jsonl")
+    cits_path = os.path.join(cits_dir, f"{corpus_id}.jsonl")
     refs_done = os.path.exists(refs_path)
     cits_done = (not fetch_cits_too) or os.path.exists(cits_path)
     if refs_done and cits_done:
         return "skip"
-
     if not refs_done:
         url = f"{S2_GRAPH_BASE}/paper/CorpusId:{corpus_id}/references"
-        page = _paged(url, CFG.ref_fields, CFG.max_refs)
-        _write_jsonl(refs_path, _flatten_refs(corpus_id, page))
+        _write_jsonl(refs_path, _flatten_refs(
+            corpus_id, _paged(url, CFG.ref_fields, CFG.max_refs)))
     if fetch_cits_too and not cits_done:
         url = f"{S2_GRAPH_BASE}/paper/CorpusId:{corpus_id}/citations"
-        page = _paged(url, CFG.cit_fields, CFG.max_cits)
-        _write_jsonl(cits_path, _flatten_cits(corpus_id, page))
+        _write_jsonl(cits_path, _flatten_cits(
+            corpus_id, _paged(url, CFG.cit_fields, CFG.max_cits)))
     return "ok"
 
 
-def fetch_cites(*, workers, fetch_cits_too, limit=None):
-    if not os.path.exists(PAPERS_INDEX):
-        sys.exit(f"Run `python -m src.fetch_graph metadata` first; "
-                 f"missing {PAPERS_INDEX}")
-    os.makedirs(REFS_OUT, exist_ok=True)
-    os.makedirs(CITS_OUT, exist_ok=True)
+def fetch_cites(experiment_name, *, workers, fetch_cits_too, limit=None):
+    dirs = experiment_dirs(experiment_name)
+    if not os.path.exists(dirs["papers_index"]):
+        sys.exit(f"Run `python -m src.fetch_graph metadata -e "
+                 f"{experiment_name}` first; missing {dirs['papers_index']}.")
+    os.makedirs(dirs["refs_dir"], exist_ok=True)
+    os.makedirs(dirs["cits_dir"], exist_ok=True)
 
     ids = []
-    with open(PAPERS_INDEX, encoding="utf-8") as f:
+    with open(dirs["papers_index"], encoding="utf-8") as f:
         for line in f:
             ids.append(json.loads(line)["corpusid"])
     if limit:
         ids = ids[:limit]
 
-    print(f"Cites stage: {len(ids):,} papers, workers={workers}, "
-          f"with_cits={fetch_cits_too}, page_size={CFG.page_size}.")
+    print(f"[{experiment_name}] cites: {len(ids):,} papers, "
+          f"workers={workers}, with_cits={fetch_cits_too}, "
+          f"page_size={CFG.page_size}.")
 
     counts = {"ok": 0, "skip": 0, "err": 0}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {pool.submit(_process_one, cid,
+                             dirs["refs_dir"], dirs["cits_dir"],
                              fetch_cits_too=fetch_cits_too): cid for cid in ids}
         for fut in tqdm(as_completed(futs), total=len(futs),
-                        desc="refs+cits"):
+                        desc=f"{experiment_name}/refs+cits"):
             try:
                 counts[fut.result()] += 1
             except Exception as e:
                 counts["err"] += 1
                 tqdm.write(f"err: {e}")
-    print(json.dumps(counts, indent=2))
+    print(f"[{experiment_name}] cites: {json.dumps(counts)}")
 
 
 # --- CLI ---------------------------------------------------------------
@@ -303,44 +299,45 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    def _add_exp(p):
+        p.add_argument("--experiment", "-e", required=True,
+                       choices=list(EXPERIMENTS),
+                       help="Which experiment's data dir to populate.")
+
     p_meta = sub.add_parser("metadata",
-        help="Stage 1: bulk-resolve ACL ids to S2 metadata via POST /paper/batch.")
-    p_meta.add_argument("--years", default=f"{YEAR_MIN}-{YEAR_MAX}",
-                        help="Inclusive range, e.g. 2022-2025 or 2024.")
+        help="Stage 1: bulk-resolve ACL ids via POST /paper/batch.")
+    _add_exp(p_meta)
 
     p_cites = sub.add_parser("cites",
         help="Stage 2: per-paper /references and /citations.")
+    _add_exp(p_cites)
     p_cites.add_argument("--workers", type=int,
                          default=4 if S2_API_KEY else 1,
-                         help="Concurrent HTTP workers (the S2 1 req/s limit "
-                              "is global, but parallel workers help overlap "
-                              "I/O during 429 back-offs).")
+                         help="Concurrent HTTP workers (1 RPS limit is "
+                              "global; parallel workers overlap I/O "
+                              "during back-offs).")
     p_cites.add_argument("--no-cits", action="store_true",
                          help="Skip incoming citations (faster).")
     p_cites.add_argument("--limit", type=int, default=None,
-                         help="Stop after N papers (for sample / smoke runs).")
+                         help="Stop after N papers (for smoke runs).")
 
-    p_all = sub.add_parser("all", help="Run metadata then cites end-to-end.")
-    p_all.add_argument("--years", default=f"{YEAR_MIN}-{YEAR_MAX}")
+    p_all = sub.add_parser("all",
+                           help="Run metadata then cites end-to-end.")
+    _add_exp(p_all)
     p_all.add_argument("--workers", type=int, default=4 if S2_API_KEY else 1)
     p_all.add_argument("--no-cits", action="store_true")
 
     args = ap.parse_args()
 
-    def _years(s):
-        if "-" in s:
-            a, b = s.split("-", 1)
-            return set(range(int(a), int(b) + 1))
-        return {int(s)}
-
     if args.cmd == "metadata":
-        fetch_metadata(years=_years(args.years))
+        fetch_metadata(args.experiment)
     elif args.cmd == "cites":
-        fetch_cites(workers=args.workers, fetch_cits_too=not args.no_cits,
-                    limit=args.limit)
+        fetch_cites(args.experiment, workers=args.workers,
+                    fetch_cits_too=not args.no_cits, limit=args.limit)
     else:  # all
-        fetch_metadata(years=_years(args.years))
-        fetch_cites(workers=args.workers, fetch_cits_too=not args.no_cits)
+        fetch_metadata(args.experiment)
+        fetch_cites(args.experiment, workers=args.workers,
+                    fetch_cits_too=not args.no_cits)
 
 
 if __name__ == "__main__":
