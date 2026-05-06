@@ -32,6 +32,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -47,7 +48,16 @@ from .config import (
 CFG = GraphAPIConfig()
 SESSION = requests.Session()
 _MIN_INTERVAL = (1.0 / CFG.rps_with_key) if S2_API_KEY else (1.0 / CFG.rps_without_key)
-_LAST_CALL = [0.0]
+
+# Module-global rate-limit state. The lock is held across the sleep
+# so that concurrent workers serialise and the inter-request gap is
+# guaranteed to be >= _MIN_INTERVAL across ALL endpoints (paper/batch,
+# /references, /citations) and ALL threads. Without the lock,
+# multiple workers can read _LAST_CALL simultaneously, both compute
+# wait=0, and fire near-simultaneous requests, breaking the 1 RPS
+# guarantee that S2 grants per API key.
+_RATE_LOCK = threading.Lock()
+_LAST_CALL = 0.0
 
 
 def _headers():
@@ -59,11 +69,15 @@ def _headers():
 
 
 def _politeness_sleep():
-    now = time.monotonic()
-    wait = _LAST_CALL[0] + _MIN_INTERVAL - now
-    if wait > 0:
-        time.sleep(wait)
-    _LAST_CALL[0] = time.monotonic()
+    """Block until at least _MIN_INTERVAL has elapsed since the last
+    fired request. Thread-safe via _RATE_LOCK."""
+    global _LAST_CALL
+    with _RATE_LOCK:
+        now = time.monotonic()
+        wait = _LAST_CALL + _MIN_INTERVAL - now
+        if wait > 0:
+            time.sleep(wait)
+        _LAST_CALL = time.monotonic()
 
 
 def _request(method, url, *, params=None, json_body=None):

@@ -81,6 +81,16 @@ At the documented 1 req/s with an API key the replication takes
 ≈ 60 h serially / 24-30 h with `--workers 4`; the extension takes
 ≈ 24 h serially / 10-12 h with `--workers 4`.
 
+The rate limiter is a single global gate (`_politeness_sleep` in
+`src/fetch_graph.py`) protected by a `threading.Lock`. With
+multiple workers and across all S2 endpoints (`POST /paper/batch`,
+`/references`, `/citations`), the effective request rate is
+guaranteed `≤ 1 req/s`. Verified by `tests/test_rate_limit.py`:
+
+```bash
+python -m unittest tests.test_rate_limit -v
+```
+
 ## Outputs
 
 Each experiment writes to its own directory:
