@@ -53,16 +53,37 @@ python -m src.analysis
 ### B. Graph-API pipeline (practical, no bulk download)
 
 Uses the [Semantic Scholar Graph API](https://api.semanticscholar.org/api-docs/graph)
-to fetch only the slice we need: NLP papers from 2022–2025 plus their
-references and citations. A run with an API key takes a few hours and
-~1 GB of disk.
+to fetch only the slice we need: NLP papers from 2022–2025 plus
+their references and citations. Follows S2's
+[best-practices tutorial](https://www.semanticscholar.org/product/api/tutorial)
+— bulk endpoints when available, page size 1,000, only the fields the
+analysis consumes.
 
 ```bash
-export S2_API_KEY=...                       # optional but strongly recommended
-python -m src.fetch_acl                     # NLP paper list from ACL Anthology
-python -m src.fetch_graph --years 2022-2025 # paper metadata + refs + citations
-python -m src.analysis_api                  # CSVs identical in shape to the bulk path
+export S2_API_KEY=...                          # required for any sized run
+python -m src.fetch_acl                        # ACL Anthology -> NLP paper-id list
+
+# Two stages, runnable independently:
+python -m src.fetch_graph metadata             # POST /paper/batch (~90 calls for 44k papers)
+python -m src.fetch_graph cites --workers 4    # per-paper /references and /citations
+# ...or do both in one go:
+python -m src.fetch_graph all --workers 4
+
+python -m src.analysis_api                     # CSVs identical in shape to the bulk path
 ```
+
+**Request budget for 2022–2025** (≈44 k NLP papers):
+
+| Stage | Endpoint | Calls | Fields requested |
+|-------|----------|-------|------------------|
+| metadata | `POST /paper/batch` (500 ids/call) | ≈ 90 | `corpusId, externalIds, year, title, citationCount, referenceCount, s2FieldsOfStudy` |
+| references | `GET /paper/{id}/references?limit=1000` | ≈ 44 k | `contexts, intents, citedPaper.{corpusId,year,s2FieldsOfStudy,externalIds}` |
+| citations | `GET /paper/{id}/citations?limit=1000` | ≈ 66 k | `contexts, intents, citingPaper.{corpusId,year,s2FieldsOfStudy,externalIds}` |
+| **total** | | **≈ 110 k** | |
+
+At the documented 1 req/s with an API key, a full run takes ≈ 30 h
+of wall-clock; in practice 2–4 workers running in parallel overlap
+I/O during 429 back-offs and bring this down to ≈ 12–18 h.
 
 ## Methodology — how this matches the original
 

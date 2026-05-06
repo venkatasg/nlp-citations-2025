@@ -37,24 +37,44 @@ cover the whole window without a key.
 
 ## To produce the headline numbers (CFDI, etc.) for 2022–2025
 
+The Graph-API pipeline follows S2's best-practices tutorial: batch
+endpoints when available, page size 1000, request only the fields
+consumed by the analysis.
+
 ```bash
 # 1. Ask for a free key: https://www.semanticscholar.org/product/api
 export S2_API_KEY=...
 
-# 2. Refresh ACL Anthology paper list (cheap; ~2 minutes).
+# 2. Refresh ACL Anthology paper list (cheap; ~2 minutes, no API).
 python -m src.fetch_acl
 
-# 3. Bulk-fetch the slice. ~3-6 h with a key.
-python -m src.fetch_graph --years 2022-2025 --workers 16
+# 3a. Stage 1 - bulk metadata via POST /paper/batch (~90 calls).
+python -m src.fetch_graph metadata
+
+# 3b. Stage 2 - per-paper /references and /citations (~110k calls).
+#     Workers > 1 helps overlap I/O during 429 back-offs.
+python -m src.fetch_graph cites --workers 4
 
 # 4. Compute everything.
 python -m src.analysis_api
 
-# 5. Or, for the canonical Spark pipeline:
-python -m src.download   # 650 GB
+# Or, for the canonical Spark pipeline:
+python -m src.download    # 650 GB; needs S2_API_KEY for the dataset endpoint
 python -m src.preprocess
 python -m src.analysis
 ```
+
+### Request budget summary
+
+| Stage | Endpoint | Calls (≈) | Notes |
+|-------|----------|-----------|-------|
+| metadata | `POST /paper/batch` | 90 | 500 ids per call |
+| references | `GET /paper/{id}/references` | 44,000 | limit=1000; 1 page covers virtually all ACL papers |
+| citations | `GET /paper/{id}/citations` | 66,000 | limit=1000; tail of high-cite papers needs ≤ 50 pages |
+| **total** | | **≈ 110,000** | + ~20 % for retries/back-fills |
+
+At the documented 1 req/s with an API key, ~30 h serially; 12-18 h
+with `--workers 4`.
 
 ## Files added in this branch
 

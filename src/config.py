@@ -33,28 +33,44 @@ FIGURES_DIR = os.path.join(ROOT, "figures")
 
 @dataclass(frozen=True)
 class GraphAPIConfig:
-    """Per-paper fetch tuning for the Graph API path."""
+    """Tuning for the Graph-API path. Defaults follow the S2 tutorial's
+    best practices: batch endpoints when available, page size = 1000,
+    request only the fields the analysis consumes."""
+
+    # Minimal field set for paper metadata (POST /paper/batch).
+    # We deliberately omit authors/venue/title's-bracket-quoting etc.;
+    # the analysis only needs corpusId, year, s2FieldsOfStudy, and the
+    # ACL externalId (to confirm NLP membership).
     paper_fields: str = (
-        "corpusId,externalIds,title,year,venue,publicationVenue,"
-        "referenceCount,citationCount,influentialCitationCount,"
-        "isOpenAccess,s2FieldsOfStudy,authors"
+        "corpusId,externalIds,year,title,citationCount,referenceCount,"
+        "s2FieldsOfStudy"
     )
+
+    # Per-reference / per-citation fields. Nested paper expansion
+    # avoids a second round-trip per neighbour.
     ref_fields: str = (
-        "contexts,intents,citedPaper.corpusId,citedPaper.year,"
+        "contexts,intents,"
+        "citedPaper.corpusId,citedPaper.year,"
         "citedPaper.s2FieldsOfStudy,citedPaper.externalIds"
     )
     cit_fields: str = (
-        "contexts,intents,citingPaper.corpusId,citingPaper.year,"
+        "contexts,intents,"
+        "citingPaper.corpusId,citingPaper.year,"
         "citingPaper.s2FieldsOfStudy,citingPaper.externalIds"
     )
-    page_size: int = 1000        # max page size on the Graph API
-    max_refs: int = 10000        # cap (NLP papers rarely exceed this)
-    max_cits: int = 10000
-    request_timeout: int = 30
-    # Conservative client-side rate-limits. With an API key the server
-    # allows ~100 RPS but Graph API frequently throttles bursty clients.
-    rps_with_key: float = 50.0
-    rps_without_key: float = 1.0
+
+    # POST /paper/batch accepts up to 500 ids per call (per S2 docs).
+    batch_size: int = 500
+    # Max page size for /references and /citations.
+    page_size: int = 1000
+    # Hard caps - papers above these need bulk-dataset access anyway.
+    max_refs: int = 10000
+    max_cits: int = 50000
+
+    request_timeout: int = 60
+    # Default rate per the tutorial: "1 request per second" with a key.
+    rps_with_key: float = 1.0
+    rps_without_key: float = 0.5  # share the unauthenticated quota
 
 
 def get_spark_conf():
