@@ -1,0 +1,13 @@
+# Bulk pipeline (mirrors upstream repo)
+pyspark>=3.5
+langdetect
+
+# Both pipelines
+requests
+tqdm
+pandas
+numpy
+
+# Plotting / notebook (optional)
+matplotlib
+seaborn
