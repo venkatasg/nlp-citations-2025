@@ -1,16 +1,9 @@
-# Bulk S2 dump (mirrors upstream repo)
-papers/*.jsonl.gz
-papers/*.json
-citations/*.jsonl.gz
-citations/*.json
-papers.jsonl/
-citations.jsonl/
-
 # Graph API cache and large reproducible inputs
 data/raw/
-data/cache/
 data/anthology+abstracts.bib.gz
-*.sqlite
+
+# Outputs from production runs (the sample dir is intentionally tracked)
+outputs/*.csv
 
 # Python
 __pycache__/
@@ -21,14 +14,5 @@ venv/
 
 # Jupyter
 .ipynb_checkpoints/
-
-# Spark
-spark-warehouse/
-metastore_db/
-derby.log
-
-# Outputs from production runs (the sample dir is intentionally tracked)
-outputs/*.csv
-figures/sample_*
 
 .DS_Store

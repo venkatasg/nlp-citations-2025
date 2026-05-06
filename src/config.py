@@ -1,9 +1,10 @@
 """Shared config for the replication.
 
-The upstream repo hard-codes year filters per analysis function. We
-centralise them here so the same code paths can be re-pointed at
-arbitrary windows. The default window is the four years that this
-replication targets: 2022 through 2025 inclusive.
+The upstream paper (Wahle et al., EMNLP 2023) hard-codes year filters
+per analysis function. We centralise them here so the same code paths
+can be re-pointed at arbitrary windows. The default window is the
+four years that this replication targets: 2022 through 2025
+inclusive.
 """
 
 import os
@@ -13,34 +14,30 @@ YEAR_MIN = 2022
 YEAR_MAX = 2025
 YEAR_RANGE = (YEAR_MIN, YEAR_MAX)
 
-# Semantic Scholar bulk + Graph API
+# Semantic Scholar Graph API.
 S2_API_KEY = os.environ.get("S2_API_KEY", "")
-S2_BULK_RELEASE = os.environ.get("S2_BULK_RELEASE", "latest")
 S2_GRAPH_BASE = "https://api.semanticscholar.org/graph/v1"
-S2_DATASETS_BASE = "https://api.semanticscholar.org/datasets/v1"
 
-# ACL Anthology bibtex (full corpus, used as ground truth for NLP papers)
+# ACL Anthology bibtex (full corpus, used as the source of truth for
+# "is this an NLP paper?" - we replicate Wahle et al.'s definition by
+# treating any S2 record with a non-null externalIds.ACL as NLP).
 ACL_BIB_URL = "https://aclanthology.org/anthology+abstracts.bib.gz"
 
-# Local paths
+# Local paths.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAPERS_DIR = os.path.join(ROOT, "papers")
-CITATIONS_DIR = os.path.join(ROOT, "citations")
 DATA_DIR = os.path.join(ROOT, "data")
 OUTPUTS_DIR = os.path.join(ROOT, "outputs")
-FIGURES_DIR = os.path.join(ROOT, "figures")
 
 
 @dataclass(frozen=True)
 class GraphAPIConfig:
-    """Tuning for the Graph-API path. Defaults follow the S2 tutorial's
-    best practices: batch endpoints when available, page size = 1000,
-    request only the fields the analysis consumes."""
+    """Tuning for the Graph-API fetcher. Defaults follow the S2
+    tutorial's best practices: bulk endpoints when available, page
+    size = 1000, request only the fields the analysis consumes."""
 
-    # Minimal field set for paper metadata (POST /paper/batch).
-    # We deliberately omit authors/venue/title's-bracket-quoting etc.;
-    # the analysis only needs corpusId, year, s2FieldsOfStudy, and the
-    # ACL externalId (to confirm NLP membership).
+    # Paper metadata (POST /paper/batch). The analysis only needs
+    # corpusId, year, s2FieldsOfStudy, and the ACL externalId
+    # (to confirm NLP membership).
     paper_fields: str = (
         "corpusId,externalIds,year,title,citationCount,referenceCount,"
         "s2FieldsOfStudy"
@@ -71,16 +68,3 @@ class GraphAPIConfig:
     # Default rate per the tutorial: "1 request per second" with a key.
     rps_with_key: float = 1.0
     rps_without_key: float = 0.5  # share the unauthenticated quota
-
-
-def get_spark_conf():
-    """SparkConf identical to the upstream repo."""
-    from pyspark import SparkConf
-    conf = SparkConf()
-    conf.set("spark.driver.port", "7070")
-    conf.set("spark.driver.bindAddress", "0.0.0.0")
-    conf.set("spark.ui.port", "4040")
-    conf.set("spark.ui.reverseProxy", "true")
-    conf.set("spark.driver.memory", os.environ.get("SPARK_DRIVER_MEMORY", "8g"))
-    conf.set("spark.sql.shuffle.partitions", "200")
-    return conf

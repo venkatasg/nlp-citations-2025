@@ -1,7 +1,8 @@
 # Run notes — replication state
 
-This document records what was actually run to produce the contents of
-`outputs/sample/` and what is still required for a full replication.
+This document records what was actually run to produce the contents
+of `outputs/sample/` and what is still required for a full
+replication.
 
 ## What ran in this commit
 
@@ -12,9 +13,8 @@ This document records what was actually run to produce the contents of
 
 2. **`src/fetch_graph.py`** — fetched S2 metadata, references, and
    citations for **6 papers** (NAACL 2024 long papers 1–4) via the
-   public S2 Graph API without an API key. Three smoke-test attempts
-   exposed a bug in `fetch_acl.py` (bibtex keys were used instead of
-   Anthology URL slugs); fixed and re-validated.
+   public S2 Graph API without an API key (smoke test of the
+   pipeline; not a real run).
 
 3. **`src/analysis_api.py`** — ran on the 6-paper sample, produced 9
    CSVs in `outputs/sample/`. Numbers are illustrative; **not the
@@ -23,21 +23,15 @@ This document records what was actually run to produce the contents of
 ## Why the run is small
 
 Without a Semantic Scholar API key the public Graph API throttles
-unauthenticated clients to roughly one request per second per IP and
-returns frequent 429s. Each NLP paper requires:
-
-* 1 call to fetch metadata,
-* ~1–10 calls to page through references,
-* ~1–N calls to page through citations.
-
-For ~44k NLP papers that's hundreds of thousands of requests. With an
-API key (S2 grants ≈100 req/s) the full window completes in a few
-hours; without one it would take days. A single session here cannot
-cover the whole window without a key.
+unauthenticated clients aggressively (1 RPS, frequent 429s). For
+~44k NLP papers that's hundreds of thousands of requests. With an
+API key (S2 grants 1 req/s + the bulk-batch endpoint) the full
+window completes in ≈ 12–18 hours; without a key it would take
+days.
 
 ## To produce the headline numbers (CFDI, etc.) for 2022–2025
 
-The Graph-API pipeline follows S2's best-practices tutorial: batch
+The Graph-API pipeline follows S2's best-practices tutorial: bulk
 endpoints when available, page size 1000, request only the fields
 consumed by the analysis.
 
@@ -45,23 +39,21 @@ consumed by the analysis.
 # 1. Ask for a free key: https://www.semanticscholar.org/product/api
 export S2_API_KEY=...
 
-# 2. Refresh ACL Anthology paper list (cheap; ~2 minutes, no API).
+# 2. Install deps.
+pip install -r requirements.txt
+
+# 3. Refresh ACL Anthology paper list (cheap; ~2 minutes, no API).
 python -m src.fetch_acl
 
-# 3a. Stage 1 - bulk metadata via POST /paper/batch (~90 calls).
+# 4. Stage 1 - bulk metadata via POST /paper/batch (~90 calls).
 python -m src.fetch_graph metadata
 
-# 3b. Stage 2 - per-paper /references and /citations (~110k calls).
-#     Workers > 1 helps overlap I/O during 429 back-offs.
+# 5. Stage 2 - per-paper /references and /citations (~110k calls).
+#    Workers > 1 helps overlap I/O during 429 back-offs.
 python -m src.fetch_graph cites --workers 4
 
-# 4. Compute everything.
+# 6. Compute every CSV.
 python -m src.analysis_api
-
-# Or, for the canonical Spark pipeline:
-python -m src.download    # 650 GB; needs S2_API_KEY for the dataset endpoint
-python -m src.preprocess
-python -m src.analysis
 ```
 
 ### Request budget summary
@@ -71,31 +63,26 @@ python -m src.analysis
 | metadata | `POST /paper/batch` | 90 | 500 ids per call |
 | references | `GET /paper/{id}/references` | 44,000 | limit=1000; 1 page covers virtually all ACL papers |
 | citations | `GET /paper/{id}/citations` | 66,000 | limit=1000; tail of high-cite papers needs ≤ 50 pages |
-| **total** | | **≈ 110,000** | + ~20 % for retries/back-fills |
+| **total** | | **≈ 110,000** | + ~20 % for retries / back-fills |
 
 At the documented 1 req/s with an API key, ~30 h serially; 12-18 h
 with `--workers 4`.
 
-## Files added in this branch
+## Files in this branch
 
 ```
-README.md                    (overview + how to run)
-RUN_NOTES.md                 (this file)
-requirements.txt
+README.md                    overview + how to run
+RUN_NOTES.md                 this file
+requirements.txt             requests, tqdm, pandas, numpy
 .gitignore
 src/__init__.py
-src/config.py                (year window 2022-2025; API config)
-src/schemas.py               (PySpark schemas, mirror of upstream)
-src/data.py                  (Spark loaders, mirror of upstream)
-src/download.py              (S2 bulk download, mirror of upstream + auth fix)
-src/preprocess.py            (Spark preprocessing + year filter)
-src/analysis.py              (bulk analysis: general_stats, citation flows, CFDI)
-src/fetch_acl.py             (ACL Anthology -> NLP paper-id list)
-src/fetch_graph.py           (per-paper S2 Graph fetch with rate-limit + retry)
-src/analysis_api.py          (Graph-API analysis; same CSV shape as bulk)
-data/acl_papers.jsonl        (43,960 NLP papers 2022-2025)
-outputs/sample/*.csv         (smoke-test CSVs from 6 papers)
-outputs/sample/README.md     (what these CSVs are)
+src/config.py                YEAR_RANGE = (2022, 2025); GraphAPIConfig
+src/fetch_acl.py             ACL Anthology -> NLP paper-id list
+src/fetch_graph.py           POST /paper/batch + paged refs/cits
+src/analysis_api.py          CFDI, citation flows, general stats
+data/acl_papers.jsonl        43,960 NLP papers 2022-2025
+outputs/sample/*.csv         smoke-test CSVs from 6 papers
+outputs/sample/README.md     what those CSVs are
 ```
 
 ## Methodology fidelity to the original paper
@@ -106,9 +93,12 @@ outputs/sample/README.md     (what these CSVs are)
 | Field of paper | `s2fieldsofstudy`, drop `external` if `internal` exists | `filter_s2fos` (same logic) |
 | CS sub-field | exploded `s2fieldsofstudy` for CS-tagged papers, dropping the "Computer Science" entry itself | same (`_select_fields(cs_only=True)`) |
 | CFDI | `1 − Σ pᵢ²` over field-of-study counts | same (`cfdi`) |
-| Self-citation | NLP→NLP / total NLP outgoing | same (`self_citations` / `general_stats`) |
+| Self-citation | NLP→NLP / total NLP outgoing | same |
 | Year filter | `year > 1965` (then per-figure ranges) | `2022 ≤ year ≤ 2025` (`config.YEAR_RANGE`) |
-| Tooling | S2 bulk dataset + PySpark | same bulk path; alt Graph-API path |
+| Tooling | S2 bulk dataset + PySpark | S2 Graph API (`POST /paper/batch` + paged refs/cits) |
 
-The only intentional methodological deviation from the upstream is the
-year-window narrowing, which is the explicit goal of this replication.
+The only intentional methodological deviation is the year-window
+narrowing, which is the explicit goal of this replication. The
+tooling change (Graph API instead of bulk dataset) replaces a
+650 GB / 24 h / Spark workflow with a ~1 GB / ~15 h / single-process
+HTTP workflow over the same underlying data.

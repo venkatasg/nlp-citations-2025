@@ -11,12 +11,13 @@ To produce real numbers, run the full pipeline (see `../../README.md`):
 ```bash
 export S2_API_KEY=...
 python -m src.fetch_acl
-python -m src.fetch_graph --years 2022-2025
+python -m src.fetch_graph metadata
+python -m src.fetch_graph cites --workers 4
 python -m src.analysis_api
 ```
 
 The full Graph-API run over all ~44k ACL papers from 2022–2025
-takes a few hours with an API key (≈100 req/s) and ~1 GB of disk
+takes ~12-18 h with an API key (1 req/s) and ~1 GB of disk
 for `data/raw/`.
 
 ## Files
