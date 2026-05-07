@@ -40,8 +40,7 @@ EXPERIMENTS = {
         "year_max": 2022,
         # Figure 3 in the original paper plots the four non-CS fields
         # with the highest citation volume.
-        "figure3_fields": ["Linguistics", "Mathematics",
-                           "Psychology", "Sociology"],
+        "figure3_fields": ["Linguistics", "Mathematics", "Psychology", "Sociology"],
     },
     "extension": {
         "label": "Extension to 2023-2025",
@@ -49,16 +48,14 @@ EXPERIMENTS = {
         "year_max": 2025,
         # Same field set as the replication so the two figures are
         # directly comparable.
-        "figure3_fields": ["Linguistics", "Mathematics",
-                           "Psychology", "Sociology"],
+        "figure3_fields": ["Linguistics", "Mathematics", "Psychology", "Sociology"],
     },
 }
 
 
 def experiment(name):
     if name not in EXPERIMENTS:
-        raise SystemExit(f"Unknown experiment {name!r}; "
-                         f"valid: {sorted(EXPERIMENTS)}")
+        raise SystemExit(f"Unknown experiment {name!r}; valid: {sorted(EXPERIMENTS)}")
     return EXPERIMENTS[name]
 
 
@@ -81,6 +78,7 @@ def experiment_dirs(name):
 
 # --- Graph API tuning --------------------------------------------------
 
+
 @dataclass(frozen=True)
 class GraphAPIConfig:
     """Tuning for the Graph-API fetcher. Defaults follow the S2
@@ -91,8 +89,7 @@ class GraphAPIConfig:
     # corpusId, year, s2FieldsOfStudy, and the ACL externalId
     # (to confirm NLP membership).
     paper_fields: str = (
-        "corpusId,externalIds,year,title,citationCount,referenceCount,"
-        "s2FieldsOfStudy"
+        "corpusId,externalIds,year,title,citationCount,referenceCount,s2FieldsOfStudy"
     )
 
     # Per-reference / per-citation fields. Nested paper expansion

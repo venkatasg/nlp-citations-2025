@@ -37,7 +37,7 @@ and a free S2 API key**.
 export S2_API_KEY=...
 
 # 2. Install deps.
-pip install -r requirements.txt
+uv sync
 
 # 3. Build NLP-paper lists for both experiments
 #    (~2 minutes; no API calls).

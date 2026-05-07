@@ -20,7 +20,7 @@ import sys
 import requests
 from tqdm import tqdm
 
-from .config import ACL_BIB_URL, DATA_DIR, EXPERIMENTS, experiment, experiment_dirs
+from config import ACL_BIB_URL, DATA_DIR, EXPERIMENTS, experiment, experiment_dirs
 
 
 def _download_bib(target):
@@ -31,9 +31,12 @@ def _download_bib(target):
     with requests.get(ACL_BIB_URL, stream=True, timeout=120) as r:
         r.raise_for_status()
         total = int(r.headers.get("content-length", 0))
-        with open(target, "wb") as f, tqdm(
-            total=total, unit="iB", unit_scale=True, desc="anthology.bib.gz"
-        ) as bar:
+        with (
+            open(target, "wb") as f,
+            tqdm(
+                total=total, unit="iB", unit_scale=True, desc="anthology.bib.gz"
+            ) as bar,
+        ):
             for chunk in r.iter_content(1 << 20):
                 f.write(chunk)
                 bar.update(len(chunk))
@@ -54,7 +57,7 @@ def parse_bib(stream):
         j = text.find("{", i)
         if j < 0:
             return
-        etype = text[i + 1:j].strip().lower()
+        etype = text[i + 1 : j].strip().lower()
         i = j + 1
         # parse key
         k = text.find(",", i)
@@ -124,8 +127,10 @@ def build_paper_list(experiment_name):
 
     ymin, ymax = cfg["year_min"], cfg["year_max"]
     n_total = n_kept = 0
-    with gzip.open(bib_gz, "rb") as gz, \
-            open(dirs["acl_list"], "w", encoding="utf-8") as out:
+    with (
+        gzip.open(bib_gz, "rb") as gz,
+        open(dirs["acl_list"], "w", encoding="utf-8") as out,
+    ):
         for entry in parse_bib(gz):
             n_total += 1
             year = _year_of(entry)
@@ -137,7 +142,7 @@ def build_paper_list(experiment_name):
             if not acl_id:
                 continue
             row = {
-                "acl_id": acl_id,        # URL slug; matches S2 externalIds.ACL
+                "acl_id": acl_id,  # URL slug; matches S2 externalIds.ACL
                 "bib_key": entry["key"],
                 "year": year,
                 "title": entry.get("title"),
@@ -148,19 +153,23 @@ def build_paper_list(experiment_name):
             out.write(json.dumps(row) + "\n")
             n_kept += 1
 
-    print(f"[{experiment_name}] parsed {n_total:,} entries; "
-          f"kept {n_kept:,} in {ymin}-{ymax}")
+    print(
+        f"[{experiment_name}] parsed {n_total:,} entries; "
+        f"kept {n_kept:,} in {ymin}-{ymax}"
+    )
     print(f"[{experiment_name}] wrote {dirs['acl_list']}")
     return n_kept
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--experiment", "-e",
-                    choices=list(EXPERIMENTS) + ["all"],
-                    default="all",
-                    help="Experiment to build the paper list for; "
-                         "'all' (default) builds both.")
+    ap.add_argument(
+        "--experiment",
+        "-e",
+        choices=list(EXPERIMENTS) + ["all"],
+        default="all",
+        help="Experiment to build the paper list for; 'all' (default) builds both.",
+    )
     args = ap.parse_args()
     targets = list(EXPERIMENTS) if args.experiment == "all" else [args.experiment]
     for name in targets:

@@ -1,7 +1,6 @@
 # Graph API cache and large reproducible inputs
 data/anthology+abstracts.bib.gz
 data/*/raw/
-data/*/papers_index.jsonl
 
 # Outputs from production runs (the sample dir is intentionally tracked)
 outputs/*/*.csv
