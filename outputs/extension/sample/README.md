@@ -11,12 +11,12 @@ To produce real numbers, run the full pipeline (see
 
 ```bash
 export S2_API_KEY=...
-python -m src.fetch_acl
-python -m src.fetch_graph metadata -e extension
-python -m src.fetch_graph cites    -e extension --workers 4
-python -m src.analysis_api          -e extension
-python -m src.plot figure3          -e extension
-python -m src.plot cfdi             -e extension
+uv run -m src.fetch_acl
+uv run -m src.fetch_graph metadata -e extension
+uv run -m src.fetch_graph cites    -e extension --workers 4
+uv run -m src.analysis_api          -e extension
+uv run -m src.plot figure3          -e extension
+uv run -m src.plot cfdi             -e extension
 ```
 
 The full Graph-API run over all ~35 k ACL papers from 2023-2025

@@ -7,7 +7,7 @@ a lock; this test exercises it from multiple worker threads and
 asserts the inter-fire gap is always >= the configured interval.
 
 Run with:
-    python -m unittest tests.test_rate_limit -v
+    uv run -m unittest tests.test_rate_limit -v
 """
 
 import threading

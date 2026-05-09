@@ -41,27 +41,55 @@ uv sync
 
 # 3. Build NLP-paper lists for both experiments
 #    (~2 minutes; no API calls).
-python -m src.fetch_acl                        # writes data/{replication,extension}/acl_papers.jsonl
+uv run -m src.fetch_acl                        # writes data/{replication,extension}/acl_papers.jsonl
 
 # 4. Run one or both experiments. (--experiment all runs both.)
 
 # Replication (Wahle et al.; ~79k NLP papers from 1990-2022):
-python -m src.fetch_graph metadata -e replication
-python -m src.fetch_graph cites    -e replication --workers 4
-python -m src.analysis_api          -e replication
-python -m src.plot figure3          -e replication
-python -m src.plot cfdi             -e replication
+uv run -m src.fetch_graph metadata -e replication
+uv run -m src.fetch_graph cites    -e replication --workers 4
+uv run -m src.analysis_api          -e replication
+uv run -m src.plot figure3          -e replication
+uv run -m src.plot cfdi             -e replication
 
 # Extension (the new 2023-2025 window; ~35k NLP papers):
-python -m src.fetch_graph metadata -e extension
-python -m src.fetch_graph cites    -e extension --workers 4
-python -m src.analysis_api          -e extension
-python -m src.plot figure3          -e extension
-python -m src.plot cfdi             -e extension
+uv run -m src.fetch_graph metadata -e extension
+uv run -m src.fetch_graph cites    -e extension --workers 4
+uv run -m src.analysis_api          -e extension
+uv run -m src.plot figure3          -e extension
+uv run -m src.plot cfdi             -e extension
 ```
 
 `fetch_graph` is resumable: each per-paper output is written through
 a `.tmp` file, so an interrupted run picks up where it left off.
+
+### Metadata lookup ladder
+
+S2 populates its `externalIds.ACL`, `DOI`, and aclanthology URL
+aliases unevenly — particularly for 2024-2025 papers indexed only as
+arxiv preprints. `fetch_graph metadata` cascades through four passes
+and falls through to the next only for papers the previous pass
+missed:
+
+1. `POST /paper/batch` with `ACL:<anthology_id>`
+2. `POST /paper/batch` with `DOI:<10.18653/v1/...>` (skipped for rows
+   without a DOI in the bib)
+3. `POST /paper/batch` with `URL:<aclanthology url>`
+4. **extension only** — `GET /paper/search/match` per residual paper.
+   Accept the top match iff `matchScore ≥ 150` and the S2 year is
+   within ±1 of the bib year. (The lowest observed true-match score
+   on a sample of arxiv-only ACL papers was ~198.)
+
+The `LOOKUP_STRATEGIES` list in `src/fetch_graph.py` is the source of
+truth for the id-lookup ladder; add or reorder entries there to
+extend it.
+
+Anything still unresolved after pass 4 is logged with a reason code
+to `data/<experiment>/papers_missing.jsonl` (`no_match_via_id_lookup`,
+`title_404`, `low_match_score`, `year_mismatch`, or `no_title`).
+Front-matter rows (prefaces, journal volume headers, program-chairs
+reports) are dropped upstream in `src/fetch_acl.py` so they don't
+pollute the missing log.
 
 ### Request budget
 
@@ -88,7 +116,7 @@ multiple workers and across all S2 endpoints (`POST /paper/batch`,
 guaranteed `≤ 1 req/s`. Verified by `tests/test_rate_limit.py`:
 
 ```bash
-python -m unittest tests.test_rate_limit -v
+uv run -m unittest tests.test_rate_limit -v
 ```
 
 ## Outputs
@@ -123,6 +151,7 @@ outputs/<experiment>/
 | CFDI | `1 − Σ pᵢ²` over field-of-study counts | same (`cfdi`) |
 | Self-citation | NLP→NLP / total NLP outgoing | same |
 | Citation join key | `corpusid` | same |
+| NLP-paper resolution | strict `externalIds.ACL is not null` join on the bulk dataset | id-lookup ladder (`ACL:`/`DOI:`/`URL:`) plus an `extension`-only title-match fallback. The ACL membership claim still comes from the Anthology bib dump, not from S2's externalIds. |
 
 The `replication` experiment is intended to closely match Wahle et
 al.'s headline results; the `extension` experiment runs the same

@@ -12,9 +12,9 @@ Mathematics, Psychology, Sociology); we plot the same set so
 the replication and extension figures are directly comparable.
 
 Usage:
-    python -m src.plot figure3 -e replication
-    python -m src.plot figure3 -e extension
-    python -m src.plot cfdi    -e replication   # CFDI per year line plot
+    uv run -m src.plot figure3 -e replication
+    uv run -m src.plot figure3 -e extension
+    uv run -m src.plot cfdi    -e replication   # CFDI per year line plot
 """
 
 import argparse
@@ -33,7 +33,7 @@ def _load_field_to_nlp(experiment_name):
                         "citations_non_cs_fields_to_nlp_by_year.csv")
     if not os.path.exists(path):
         sys.exit(f"Missing {path}; run "
-                 f"`python -m src.analysis_api -e {experiment_name}` first.")
+                 f"`uv run -m src.analysis_api -e {experiment_name}` first.")
     return pd.read_csv(path)
 
 
@@ -116,7 +116,7 @@ def cfdi_plot(experiment_name, *, save=True):
     path = os.path.join(dirs["outputs"], "cfdi_per_year_nlp.csv")
     if not os.path.exists(path):
         sys.exit(f"Missing {path}; run "
-                 f"`python -m src.analysis_api -e {experiment_name}` first.")
+                 f"`uv run -m src.analysis_api -e {experiment_name}` first.")
     df = pd.read_csv(path)
     df = df[(df["year"] >= cfg["year_min"]) & (df["year"] <= cfg["year_max"])]
 

@@ -55,6 +55,46 @@ stopped. The metadata stage scans the per-experiment `papers/` dir
 to detect what is already cached; the cites stage skips a paper
 when both its refs and cites JSONL files already exist.
 
+## Metadata coverage and the lookup ladder
+
+`fetch_graph metadata` runs a four-pass cascade — `ACL:` →
+`DOI:` → `URL:` (each via `POST /paper/batch`) → `GET
+/paper/search/match` (extension only). Each pass receives only the
+papers the previous pass missed; per-pass tallies are printed at the
+end of the stage.
+
+- The first three passes exist because S2 sets the `ACL`/`DOI`/
+  aclanthology-URL aliases inconsistently across vintages. Older
+  papers usually resolve via `ACL:`; many 2025 papers only carry the
+  DOI alias, and a handful only the URL.
+- The title-match pass (extension only) recovers papers that S2
+  indexed solely as arxiv preprints — `2023.acl-long.819` (corpus
+  `261065854`) is the canonical case. Acceptance threshold:
+  `matchScore ≥ 150` AND `|s2_year - bib_year| ≤ 1`. The threshold
+  was calibrated on a probe set: true ACL-paper matches scored
+  198-409, generic single-noun queries scored 49-115. `150` keeps
+  ~25% headroom under the observed true-match floor.
+- Replication is *not* run through pass 4 — its window (1990-2022)
+  is well covered by the id-lookup passes, and per-paper search
+  calls would multiply the request budget unnecessarily.
+
+Unresolved papers after the cascade are written to
+`data/<experiment>/papers_missing.jsonl` with reason codes:
+
+| reason | meaning |
+|--------|---------|
+| `no_match_via_id_lookup` | none of `ACL:`/`DOI:`/`URL:` returned a record (replication; or extension before pass 4) |
+| `title_404` | `/paper/search/match` returned no result |
+| `low_match_score` | top match scored below 150 |
+| `year_mismatch` | top match's S2 year differed from the bib year by > 1 |
+| `no_title` | bib row had no usable title (defensive; rare) |
+
+Front-matter entries (prefaces, journal volume headers, program-
+chairs reports) are dropped at the `fetch_acl` step
+(`_is_frontmatter`). Their `acl_id`s usually end in `.0` or their
+title starts with `Preface`/`Proceedings of`/`Front Matter`/
+`Foreword`/`Program Chairs' Report`.
+
 ## Request budget summary (per the S2 tutorial's best practices)
 
 | Experiment | Stage | Endpoint | Calls (≈) | Notes |

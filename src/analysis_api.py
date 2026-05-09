@@ -1,8 +1,8 @@
 """Run the citation-flow / CFDI analysis for one experiment.
 
 Usage:
-    python -m src.analysis_api -e replication
-    python -m src.analysis_api -e extension
+    uv run -m src.analysis_api -e replication
+    uv run -m src.analysis_api -e extension
 
 Reads `data/<experiment>/raw/{papers,refs,cits}` and writes
 `outputs/<experiment>/*.csv`. The metric definitions match Wahle et
@@ -97,7 +97,7 @@ def load_focal_papers(ctx):
     if not paths:
         raise SystemExit(
             f"No paper metadata in {ctx.papers_dir()}. "
-            f"Run `python -m src.fetch_graph metadata -e {ctx.name}`.")
+            f"Run `uv run -m src.fetch_graph metadata -e {ctx.name}`.")
     for p in tqdm(paths, desc=f"{ctx.name}/load"):
         with open(p, encoding="utf-8") as f:
             d = json.load(f)

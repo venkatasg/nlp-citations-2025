@@ -20,7 +20,7 @@ import sys
 import requests
 from tqdm import tqdm
 
-from config import ACL_BIB_URL, DATA_DIR, EXPERIMENTS, experiment, experiment_dirs
+from .config import ACL_BIB_URL, DATA_DIR, EXPERIMENTS, experiment, experiment_dirs
 
 
 def _download_bib(target):
@@ -117,6 +117,47 @@ def _acl_id_of(entry):
     return m.group(1) if m else None
 
 
+# Front matter (prefaces, journal volume headers, program-chairs reports)
+# does not have a real S2 record or citation graph and would otherwise
+# inflate the unresolved-papers count. Detect by:
+#   - acl_id ending in `.0` (Anthology convention for volume headers,
+#     e.g. `2025.tal-1.0` -> "Traitement Automatique des Langues, Volume 66")
+#   - title that is exactly or starts with a frontmatter phrase, after
+#     stripping latex-style braces / backslashes.
+_FRONTMATTER_PREFIXES = (
+    "preface",
+    "proceedings of",
+    "front matter",
+    "foreword",
+    "program chairs report",
+)
+_FRONTMATTER_EXACT = {"preface", "foreword", "front matter"}
+# After stripping latex `{}\` markers, also drop any non-alphanumeric
+# characters so accent residues (`Pr'eface` <- `Pr{\'e}face`) and curly
+# apostrophes (`Chairs’`) do not block a prefix match.
+_NORMALISE_RE = re.compile(r"[^a-z0-9 ]+")
+_LATEX_RE = re.compile(r"[{}\\]")
+
+
+def _normalise_title(title):
+    if not title:
+        return ""
+    t = _LATEX_RE.sub("", title).lower()
+    t = _NORMALISE_RE.sub("", t)
+    return " ".join(t.split())
+
+
+def _is_frontmatter(acl_id, title):
+    if acl_id.endswith(".0"):
+        return True
+    t = _normalise_title(title)
+    if not t:
+        return False
+    if t in _FRONTMATTER_EXACT:
+        return True
+    return t.startswith(_FRONTMATTER_PREFIXES)
+
+
 def build_paper_list(experiment_name):
     cfg = experiment(experiment_name)
     dirs = experiment_dirs(experiment_name)
@@ -126,7 +167,7 @@ def build_paper_list(experiment_name):
     _download_bib(bib_gz)
 
     ymin, ymax = cfg["year_min"], cfg["year_max"]
-    n_total = n_kept = 0
+    n_total = n_kept = n_frontmatter = 0
     with (
         gzip.open(bib_gz, "rb") as gz,
         open(dirs["acl_list"], "w", encoding="utf-8") as out,
@@ -140,6 +181,9 @@ def build_paper_list(experiment_name):
                 continue
             acl_id = _acl_id_of(entry)
             if not acl_id:
+                continue
+            if _is_frontmatter(acl_id, entry.get("title")):
+                n_frontmatter += 1
                 continue
             row = {
                 "acl_id": acl_id,  # URL slug; matches S2 externalIds.ACL
@@ -155,7 +199,8 @@ def build_paper_list(experiment_name):
 
     print(
         f"[{experiment_name}] parsed {n_total:,} entries; "
-        f"kept {n_kept:,} in {ymin}-{ymax}"
+        f"kept {n_kept:,} in {ymin}-{ymax} "
+        f"(skipped {n_frontmatter:,} frontmatter)"
     )
     print(f"[{experiment_name}] wrote {dirs['acl_list']}")
     return n_kept
