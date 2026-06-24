@@ -1,0 +1,27 @@
+year,field,direction,count,pct
+2023,Engineering,nlp_to_field,0,
+2023,Linguistics,nlp_to_field,0,
+2024,Biology,nlp_to_field,5,5.617977528089887
+2024,Chemistry,nlp_to_field,2,2.247191011235955
+2024,Education,nlp_to_field,1,1.1235955056179776
+2024,Engineering,nlp_to_field,1,1.1235955056179776
+2024,Environmental Science,nlp_to_field,0,0.0
+2024,Linguistics,nlp_to_field,41,46.06741573033708
+2024,Materials Science,nlp_to_field,0,0.0
+2024,Mathematics,nlp_to_field,15,16.853932584269664
+2024,Medicine,nlp_to_field,17,19.101123595505616
+2024,Physics,nlp_to_field,3,3.3707865168539324
+2024,Psychology,nlp_to_field,4,4.49438202247191
+2023,Engineering,field_to_nlp,1,16.666666666666664
+2023,Linguistics,field_to_nlp,5,83.33333333333334
+2024,Biology,field_to_nlp,0,0.0
+2024,Chemistry,field_to_nlp,1,2.7777777777777777
+2024,Education,field_to_nlp,5,13.88888888888889
+2024,Engineering,field_to_nlp,5,13.88888888888889
+2024,Environmental Science,field_to_nlp,2,5.555555555555555
+2024,Linguistics,field_to_nlp,16,44.44444444444444
+2024,Materials Science,field_to_nlp,1,2.7777777777777777
+2024,Mathematics,field_to_nlp,1,2.7777777777777777
+2024,Medicine,field_to_nlp,1,2.7777777777777777
+2024,Physics,field_to_nlp,2,5.555555555555555
+2024,Psychology,field_to_nlp,2,5.555555555555555

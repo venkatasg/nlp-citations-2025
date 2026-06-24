@@ -1,0 +1,22 @@
+# Graph API cache and large reproducible inputs
+data/anthology+abstracts.bib.gz
+data/*/raw/
+
+# Outputs from production runs (the sample dir is intentionally tracked)
+outputs/*/*.csv
+outputs/*/figures/
+
+# But keep the smoke-test sample artefacts.
+!outputs/extension/sample/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+.DS_Store
